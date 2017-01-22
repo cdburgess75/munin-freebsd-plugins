@@ -1,0 +1,18 @@
+#!/bin/sh
+#
+# munin plugin to show CPU frequency using sysctl
+#
+
+if [ "$1" = "config" ]; then
+  echo "graph_title CPU frequency"
+  echo 'graph_category system'
+  echo "graph_info This graph shows the cpu frequency"
+
+  echo "freq.label CPU frequency [MHz]"
+  echo "freq.info CPU frequency [MHz]"
+  echo "freq.type GAUGE"
+  exit
+fi
+
+echo -n "freq.value "
+sysctl -a dev.cpu.0.freq | cut -f 2 -d' '
