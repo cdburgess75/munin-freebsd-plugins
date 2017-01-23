@@ -1,0 +1,169 @@
+#!/usr/bin/perl
+# -*- perl -*-
+
+=head1 NAME
+
+spamstats - Plugin to graph spamassassin throughput
+
+=head1 CONFIGURATION
+
+This plugin does not have any configuration
+
+=head1 AUTHOR
+
+Unknown author
+
+=head1 LICENSE
+
+GPLv2
+
+=head1 MAGIC MARKERS
+
+ #%# family=contrib
+
+=cut
+
+
+$statefile = $ENV{statefile} || "$ENV{MUNIN_PLUGSTATE}/munin-spamstats.state";
+$pos   = undef;
+$ham = 0;
+$blocked = 0;
+$spam = 0;
+$virus = 0;
+$spammy = 0;
+
+$logfile = $ENV{logdir} || "/var/log/";
+$logfile .= $ENV{logfile} || "mail.log";
+
+if (-f "$logfile.0")
+{
+    $rotlogfile = $logfile . ".0";
+}
+elsif (-f "$logfile.1")
+{
+    $rotlogfile = $logfile . ".1";
+}
+elsif (-f "$logfile.01")
+{
+    $rotlogfile = $logfile . ".01";
+}
+else
+{
+    $rotlogfile = $logfile . ".0";
+}
+
+if ( $ARGV[0] and $ARGV[0] eq "config" )
+{
+    print "host_name $ENV{FQDN}\n";
+    print "graph_title SpamAssassin throughput\n";
+    print "graph_category postfix\n";
+    print "graph_args --base 1000 -l 0\n";
+    print "graph_vlabel mails/\${graph_period}\n";
+    print "graph_order ham spammy spam virus blocked\n";
+    print "ham.label ham\n";
+    print "ham.type DERIVE\n";
+    print "ham.min 0\n";
+    print "ham.draw AREA\n";
+    print "spam.label spam\n";
+    print "spam.type DERIVE\n";
+    print "spam.min 0\n";
+    print "spam.draw STACK\n";
+    print "blocked.label blocked\n";
+    print "blocked.type DERIVE\n";
+    print "blocked.min 0\n";
+    print "blocked.draw STACK\n";
+    print "virus.label virus\n";
+    print "virus.type DERIVE\n";
+    print "virus.min 0\n";
+    print "virus.draw STACK\n";
+    print "spammy.label spammy\n";
+    print "spammy.type DERIVE\n";
+    print "spammy.min 0\n";
+    print "spammy.draw STACK\n";
+    exit 0;
+}
+
+if (! -f $logfile and ! -f $rotlogfile)
+{
+    print "ham.value U\n";
+    print "spam.value U\n";
+    print "virus.value U\n";
+    print "blocked.value U\n";
+    print "spammy.value u\n";
+    exit 0;
+}
+
+if (-f "$statefile")
+{
+    open (IN, "$statefile") or exit 4;
+    if (<IN> =~ /^(\d+):(\d+):(\d+):(\d+):(\d+):(\d+)/)
+    {
+        ($pos, $ham, $spam, $spammy, $virus, $blocked) = ($1, $2, $3, $4, $5, $6);
+    }
+    close IN;
+}
+
+$startsize = (stat $logfile)[7];
+
+if (!defined $pos)
+{
+    # Initial run.
+    $pos = $startsize;
+}
+
+if ($startsize < $pos)
+{
+    # Log rotated
+    if (-f $rotlogfile) {
+        parselogfile ($rotlogfile, $pos, (stat $rotlogfile)[7]);
+    }
+    $pos = 0;
+}
+
+parselogfile ($logfile, $pos, $startsize);
+$pos = $startsize;
+
+print "ham.value $ham\n";
+print "spam.value $spam\n";
+print "virus.value $virus\n";
+print "blocked.value $blocked\n";
+print "spammy.value $spammy\n";
+
+open (OUT, ">$statefile") or exit 4;
+print OUT "$pos:$ham:$spam:$spammy:$virus:$blocked\n";
+close OUT;
+
+sub parselogfile
+{
+    my ($fname, $start, $stop) = @_;
+    open (LOGFILE, $fname) or exit 3;
+    seek (LOGFILE, $start, 0) or exit 2;
+
+    while (tell (LOGFILE) < $stop)
+    {
+        my $line =<LOGFILE>;
+        chomp ($line);
+
+        if ($line =~ m/Passed CLEAN/)
+        {
+            $ham++;
+        }
+        elsif ($line =~ m/Blocked SPAM/)
+        {
+            $spam++;
+        }
+        elsif ($line =~ m/Passed SPAMMY/)
+        {
+            $spammy++;
+        }
+        elsif ($line =~ m/Blocked INFECTED/)
+        {
+            $virus++;
+        }
+        elsif ($line =~ m/blocked using/)
+        {
+            $blocked++;
+        }
+    }
+    close(LOGFILE);
+}
